@@ -7,9 +7,14 @@
 #include <time.h>
 
 #define TAM 200
+#define NUM_CHAR 26
 
-
-
+typedef struct {
+	TCHAR* fileViewMap;
+	HANDLE hEvent;
+	HANDLE hMutex;
+	int terminar;
+}ThreadDados;
 
 typedef struct {
 	int nFaixas;

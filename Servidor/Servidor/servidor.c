@@ -13,6 +13,89 @@ typedef struct {
 	int mov; //movimentos
 }Sapo;
 
+//------------------------------------------MEMORIA PARTILHADA------------------------
+DWORD WINAPI ThreadLer(LPVOID param) {
+	ThreadDados* dados = (ThreadDados*)param;
+
+	DWORD size;
+	COORD t;
+	t.X = 40;
+	t.Y = 0;
+	HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+	int linhas = 0;
+
+	while (1) {
+
+		if (linhas > 10) {
+			//FillConsoleOutputCharacter(hConsole, _T(' '), 80 * 1, t, &size);
+			FillConsoleOutputCharacter(hConsole, _T(' '), t.X * t.Y, t, &size);
+			t.Y = 0;
+			linhas = 0;
+		}
+		
+
+		//esperar até que evento desbloqueie
+		WaitForSingleObject(dados->hEvent, INFINITE);
+
+		t.Y++;
+		linhas++;
+
+		//verifica se é preciso terminar a thread ou nao
+		if (dados->terminar)
+			break;
+
+		
+		SetConsoleCursorPosition(hConsole, t);
+		
+		//faço o lock para o mutex
+		WaitForSingleObject(dados->hMutex, INFINITE);
+		_tprintf(TEXT("Mensagem recebida: %s\n"), dados->fileViewMap);
+
+		//faço unlock do mutex
+		ReleaseMutex(dados->hMutex);
+
+		Sleep(1000);
+	}
+
+	return 0;
+}
+
+DWORD WINAPI ThreadEscrever(LPVOID param) {
+	TCHAR msg[NUM_CHAR];
+	ThreadDados* dados = (ThreadDados*)param;
+
+
+	while (!(dados->terminar)) {
+		_fgetts(msg, NUM_CHAR, stdin);
+		msg[_tcslen(msg) - 1] = '\0'; //terminamos a string de maneira correta
+
+		if (_tcscmp(msg, TEXT("fim")) == 0)
+			dados->terminar = 1;
+
+
+		//faço lock ao mutex
+		WaitForSingleObject(dados->hMutex, INFINITE);
+
+		//limpa memoria antes de fazer a copia
+		ZeroMemory(dados->fileViewMap, NUM_CHAR * sizeof(TCHAR));
+
+		//copia memoria de um sitio para outro (aqui copia a mensagem escrita no terminal para o fileViewMap)
+		CopyMemory(dados->fileViewMap, msg, _tcslen(msg) * sizeof(TCHAR));
+
+		//liberto mutex
+		ReleaseMutex(dados->hMutex);
+
+		//criamos evento
+		SetEvent(dados->hEvent);
+		Sleep(500);
+
+		ResetEvent(dados->hEvent); //torna o evento novamente não assinalado
+	}
+
+	return 0;
+}
+//-------------------------------------------------------------------------------------
+
 
 int _tmain(int argc, LPTSTR argv[]) {
 	
@@ -27,6 +110,7 @@ int _tmain(int argc, LPTSTR argv[]) {
 	gameinfo.velocCarros = 0;
 
 	gamestate.state = 0;
+
 
 
 	HKEY key; //Handle para a chave depois aberta/criada
@@ -48,9 +132,10 @@ int _tmain(int argc, LPTSTR argv[]) {
 	} while (_tcscmp(COM, TEXT("yes")) != 0 && _tcscmp(COM, TEXT("no")) != 0);
 
 	if (_tcscmp(COM, TEXT("yes")) == 0) {
-
-		_tprintf(TEXT("Número de faixas: "));
-		_tscanf_s(TEXT("%d"), &gameinfo.nFaixas);
+		do {
+			_tprintf(TEXT("Número de faixas: "));
+			_tscanf_s(TEXT("%d"), &gameinfo.nFaixas);
+		} while (gameinfo.nFaixas > 10);
 
 		_tprintf(TEXT("Velocidade Inicial carros: "));
 		_tscanf_s(TEXT("%d"), &gameinfo.velocCarros);
@@ -69,8 +154,10 @@ int _tmain(int argc, LPTSTR argv[]) {
 		_tprintf(TEXT("A chave foi criada: %s"), key_name);
 		
 		if (gameinfo.velocCarros == 0 && gameinfo.nFaixas == 0) {
-			_tprintf(TEXT("Número de faixas: "));
-			_tcscanf_s(TEXT("%d"), &gameinfo.nFaixas);
+			do {
+				_tprintf(TEXT("Número de faixas: "));
+				_tscanf_s(TEXT("%d"), &gameinfo.nFaixas);
+			} while (gameinfo.nFaixas > 10);
 
 			_tprintf(TEXT("Velocidade Inicial carros: "));
 			_tcscanf_s(TEXT("%d"), &gameinfo.velocCarros);
@@ -112,30 +199,121 @@ int _tmain(int argc, LPTSTR argv[]) {
 		
 	RegCloseKey(key);
 	Sleep(2000); //EM PROGRESSO <-----------------------------
+
+	//------------------------------------------------------------------MEMORIA PARTILHADA-----------------------------------------------------------------------
+	
+	/*HANDLE hFileMap;
+	ThreadDados dados;
+	HANDLE hThreads;
+	//HANDLE hSem;
+
+
+	 //mapeia ficheiro num bloco de memoria
+	hFileMap = CreateFileMapping(
+		INVALID_HANDLE_VALUE,
+		NULL,
+		PAGE_READWRITE,
+		0,
+		NUM_CHAR * sizeof(TCHAR), // alterar o tamanho do filemapping
+		TEXT("TP_MEM_OPERADOR")); //nome do file mapping, tem de ser único
+
+	if (hFileMap == NULL) {
+		_tprintf(TEXT("Erro no CreateFileMapping\n"));
+		//CloseHandle(hFile); //recebe um handle e fecha esse handle , no entanto o handle é limpo sempre que o processo termina
+		return 1;
+	}
+
+	//mapeia bloco de memoria para espaço de endereçamento
+	dados.fileViewMap = (TCHAR*)MapViewOfFile(
+		hFileMap,
+		FILE_MAP_ALL_ACCESS,
+		0,
+		0,
+		0);
+
+	if (dados.fileViewMap == NULL) {
+		_tprintf(TEXT("Erro no MapViewOfFile\n"));
+		return 1;
+	}
+
+
+	dados.hEvent = CreateEvent(
+		NULL,
+		TRUE,
+		FALSE,
+		TEXT("SO2_EVENTO"));
+
+	if (dados.hEvent == NULL) {
+		_tprintf(TEXT("Erro no CreateEvent\n"));
+		UnmapViewOfFile(dados.fileViewMap);
+		return 1;
+	}
+
+	dados.hMutex = CreateMutex(
+		NULL,
+		FALSE,
+		TEXT("SO2_MUTEX"));
+
+	if (dados.hMutex == NULL) {
+		_tprintf(TEXT("Erro no CreateMutex\n"));
+		UnmapViewOfFile(dados.fileViewMap);
+		return 1;
+	}
+
+	dados.terminar = 0;
+
+	hThreads = CreateThread(NULL, 0, ThreadLer, &dados, 0, NULL);
+
+	*/
+
 	//---------------------------------------------------------------------------TABULEIRO-----------------------------------------------------------------------
-	
-	int tab[10][COLUNAS];
-	
 	COORD t;
-	t.X = 30;
+	t.X = 0;
 	t.Y = 0;
 	HANDLE hStdout;
+
+	HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+
+	// Set the console text attributes to the default values (white on black)
+	SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+
+	// Get the size of the console buffer
+	CONSOLE_SCREEN_BUFFER_INFO csbi;
+	GetConsoleScreenBufferInfo(hConsole, &csbi);
+	COORD bufferSize = { csbi.dwSize.X, csbi.dwSize.Y };
+
+	// Fill the entire console buffer with spaces
+	DWORD numCellsWritten;
+	FillConsoleOutputCharacter(hConsole, _T(' '), bufferSize.X * bufferSize.Y, t, &numCellsWritten);
+
+	// Set the console cursor position to the top left corner
+	SetConsoleCursorPosition(hConsole, t);
+
+	int tab[10][COLUNAS];
+	
+	
+	
+	
 	hStdout = GetStdHandle(STD_OUTPUT_HANDLE);
-	FillConsoleOutputCharacter(hStdout, _T(' '), 80 * 1, t, &size);
+	FillConsoleOutputCharacter(hStdout, _T(' '), 1, t, &size);
+
+
 
 	int random_number = rand() % 20;
 	tab[gameinfo.nFaixas-1][random_number] = 1;
 
 	do {
 		random_number = rand() % 20;
-	} while (tab[0][random_number] == 1);
+	} while (tab[gameinfo.nFaixas - 1][random_number] == 1);
 
 	tab[gameinfo.nFaixas-1][random_number] = 1;
+
+
 	for (int i = 0; i < gameinfo.nFaixas; i++) {
 		_tprintf(TEXT("|"));
 		for (int y = 0; y < COLUNAS; y++)
 			if(tab[i][y]!=1)
-				_tprintf(TEXT("-"));
+				_tprintf(TEXT(" "));
 			else
 				_tprintf(TEXT("s"));
 		_tprintf(TEXT("|\n"));
@@ -147,9 +325,9 @@ int _tmain(int argc, LPTSTR argv[]) {
 	
 	COORD pos;
 	pos.X = 0;
-	pos.Y = 0;
+	pos.Y = 12;
 	
-	FillConsoleOutputCharacter(hStdout, _T(' '), 80 * 7, pos, &size);
+
 	do {
 		FillConsoleOutputCharacter(hStdout, _T(' '), 80 * 1, pos, &size);
 		SetConsoleCursorPosition(hStdout, pos);
@@ -175,9 +353,13 @@ int _tmain(int argc, LPTSTR argv[]) {
 
 		
 
-	} while (_tcscmp(COM, TEXT("close")) || gamestate.state != 3);
+	} while (_tcscmp(COM, TEXT("close"))!=0 && gamestate.state != 3);
 
 	gamestate.state = 3;
+
+	//dados.terminar = 1;
+
+	//WaitForSingleObject(hThreads, INFINITE);
 	
 
 	return 0;
