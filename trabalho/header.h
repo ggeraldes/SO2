@@ -24,25 +24,26 @@ typedef struct {
 }ThreadDados;
 */
 
-
+typedef struct {
+	int tab[10][COLUNAS];
+}Tabuleiro;
 
 typedef struct {
 	int nFaixas;
 	int velocCarros;
 	int state; // 0 - em jogo, 1 - pause, 2 - reiniciar, 3 - Encerrar Sistema
-	Carros c[MAXCARROS];
-	Sapos s[2];
+	Tabuleiro tabuleiro;
+	int change;
 }GameInfo;
 
 typedef struct {
-	int x;
-	int y;
-}Carros;
+	GameInfo* fileViewMap;
+	HANDLE hEvent;
+	HANDLE hMutex;
+	int terminar;
+}ThreadTab;
 
-typedef struct {
-	int x;
-	int y;
-}Sapos;
+
 
 
 //------------------------------------------------------------------------------------
@@ -70,5 +71,10 @@ typedef struct {
 	HANDLE hMutex;
 	int terminar; // 1 para sair, 0 em caso contrário
 	int id;
-	GameInfo* game;
+	//GameInfo* game;
 }DadosThreads;
+
+//----------------------------------------------------------------------------
+
+
+

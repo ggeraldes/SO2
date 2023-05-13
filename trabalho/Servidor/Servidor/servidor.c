@@ -9,6 +9,9 @@ typedef struct {
 	int mov; //movimentos
 }Sapo;
 
+GameInfo game;
+
+
 //------------------------------------------ BUFFER CIRCULAR -------------------------------------------------------------
 DWORD WINAPI ThreadProdutor(LPVOID param) {
 	DadosThreads* dados = (DadosThreads*)param;
@@ -42,7 +45,15 @@ DWORD WINAPI ThreadProdutor(LPVOID param) {
 
 		//contador++;
 		//soma += cel.val;
+		
 		_tprintf(TEXT("O%d comando: %d, %d.\n"), cel.id, cel.comando[0], cel.comando[1]);
+		if (cel.comando[0] == 2) {
+			for (int i = 0; i < COLUNAS; i++)
+				game.tabuleiro.tab[cel.comando[1]][i] = 1;
+			game.change = 1;
+		}
+			
+			
 	}
 	//_tprintf(TEXT("C%d consumiu %d items.\n"), dados->id, soma);
 
@@ -50,11 +61,67 @@ DWORD WINAPI ThreadProdutor(LPVOID param) {
 }
 //-------------------------------------------------------------------------------------
 
+//------------------------------------------ MEMORIA PARTILHADA -------------------------------------------------------------
+DWORD WINAPI EnviaTabuleiro(LPVOID param) {
+	//TCHAR msg[NUM_CHAR];
+	ThreadTab* dados = (ThreadTab*)param;
+	Sleep(1000);
+	COORD t, y;
+	t.X = 0; y.X = 9;
+	t.Y = 0; y.Y = 12;
+	DWORD size;
+
+	HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+
+	while (!(dados->terminar)) {
+		do {
+		
+			FillConsoleOutputCharacter(hConsole, _T(' '), 80 * 1, t, &size);
+			SetConsoleCursorPosition(hConsole,t);
+
+			for (int i = 0; i < game.nFaixas; i++) {
+				_tprintf(TEXT("|"));
+				for (int y = 0; y < COLUNAS; y++)
+					if (game.tabuleiro.tab[i][y] != 1)
+						_tprintf(TEXT(" "));
+					else
+						_tprintf(TEXT("s"));
+				_tprintf(TEXT("|\n"));
+
+			}
+			SetConsoleCursorPosition(hConsole, y);
+			Sleep(1000);
+		} while (game.change == 0);
+
+		game.change = 0;
+		//faço lock ao mutex
+		WaitForSingleObject(dados->hMutex, INFINITE);
+
+		//limpa memoria antes de fazer a copia
+		ZeroMemory(dados->fileViewMap, sizeof(GameInfo));
+
+		//copia memoria de um sitio para outro (aqui copia a mensagem escrita no terminal para o fileViewMap)
+		CopyMemory(dados->fileViewMap, &game, sizeof(GameInfo));
+
+		//liberto mutex
+		ReleaseMutex(dados->hMutex);
+
+		//criamos evento
+		SetEvent(dados->hEvent);
+		Sleep(500);
+
+		ResetEvent(dados->hEvent); //torna o evento novamente não assinalado
+	}
+
+	return 0;
+}
+//-------------------------------------------------------------------------------------
 
 int _tmain(int argc, LPTSTR argv[]) {
-	GameInfo game;
-	DadosThreads dados;
+	
+	//DadosThreads dados;
 	srand(time(NULL));
+	
 	
 
 	TCHAR COM[50]; //COMANDOS
@@ -63,7 +130,6 @@ int _tmain(int argc, LPTSTR argv[]) {
 	game.velocCarros = 0;
 
 	game.state = 0;
-
 
 
 	HKEY key; //Handle para a chave depois aberta/criada
@@ -155,8 +221,9 @@ int _tmain(int argc, LPTSTR argv[]) {
 
 	//------------------------------------------------------------------BUFFER CIRCULAR-----------------------------------------------------------------------
 
-	HANDLE hFileMap; //handle para o file map
-	HANDLE hThread;
+	DadosThreads dados;
+	HANDLE hFileMapBC; //handle para o file map
+	HANDLE hThread[2];
 	//DadosThreads dados;
 	//TCHAR comando[100];
 	BOOL  primeiroProcesso = FALSE;
@@ -190,7 +257,7 @@ int _tmain(int argc, LPTSTR argv[]) {
 	else{
 		primeiroProcesso = TRUE;
 		//criamos o bloco de memoria partilhada
-		hFileMap = CreateFileMapping(
+		hFileMapBC = CreateFileMapping(
 			INVALID_HANDLE_VALUE,
 			NULL,
 			PAGE_READWRITE,
@@ -198,14 +265,14 @@ int _tmain(int argc, LPTSTR argv[]) {
 			sizeof(BufferCircular), //tamanho da memoria partilhada
 			TEXT("SO2_MEM_PARTILHADA"));//nome do filemapping. nome que vai ser usado para partilha entre processos
 
-		if (hFileMap == NULL) {
+		if (hFileMapBC == NULL) {
 			_tprintf(TEXT("Erro no CreateFileMapping\n"));
 			return -1;
 		}
 	}
 
 	//mapeamos o bloco de memoria para o espaco de enderaçamento do nosso processo
-	dados.memPar = (BufferCircular*)MapViewOfFile(hFileMap, FILE_MAP_ALL_ACCESS, 0, 0, 0);
+	dados.memPar = (BufferCircular*)MapViewOfFile(hFileMapBC, FILE_MAP_ALL_ACCESS, 0, 0, 0);
 
 	if (dados.memPar == NULL) {
 		_tprintf(TEXT("Erro no MapViewOfFile\n"));
@@ -223,20 +290,86 @@ int _tmain(int argc, LPTSTR argv[]) {
 	
 
 	//lancamos a thread
-	hThread = CreateThread(NULL, 0, ThreadProdutor, &dados, 0, NULL);
+	hThread[0] = CreateThread(NULL, 0, ThreadProdutor, &dados, 0, NULL);
 
-	if (hThread == NULL) 
+	if (hThread[0] == NULL)
 		_tprintf(TEXT("Problemas com a thread do buffer circular ...\n"));
-	
+	else
+		_tprintf(TEXT("thread buffer circular inicializada ...\n"));
 	
 	
 
 
 	//---------------------------------------------------------------------------TABULEIRO-----------------------------------------------------------------------
+	
+	//---------------------- MEMORIA PARTILHADA ------------------------------
+	HANDLE hFileMap;
+	ThreadTab tab;
+	//HANDLE hThreads;
+	//HANDLE hSem;
+
+
+	 //mapeia ficheiro num bloco de memoria
+	hFileMap = CreateFileMapping(
+		INVALID_HANDLE_VALUE,
+		NULL,
+		PAGE_READWRITE,
+		0,
+		sizeof(GameInfo), // alterar o tamanho do filemapping
+		TEXT("TP_MEM_OPERADOR")); //nome do file mapping, tem de ser único
+
+	if (hFileMap == NULL) {
+		_tprintf(TEXT("Erro no CreateFileMapping\n"));
+		//CloseHandle(hFile); //recebe um handle e fecha esse handle , no entanto o handle é limpo sempre que o processo termina
+		return 1;
+	}
+
+	//mapeia bloco de memoria para espaço de endereçamento
+	tab.fileViewMap= (GameInfo*)MapViewOfFile(
+		hFileMap,
+		FILE_MAP_ALL_ACCESS,
+		0,
+		0,
+		0);
+
+	if (tab.fileViewMap == NULL) {
+		_tprintf(TEXT("Erro no MapViewOfFile\n"));
+		return 1;
+	}
+
+
+	tab.hEvent = CreateEvent(
+		NULL,
+		TRUE,
+		FALSE,
+		TEXT("SO2_EVENTO"));
+
+	if (tab.hEvent == NULL) {
+		_tprintf(TEXT("Erro no CreateEvent\n"));
+		UnmapViewOfFile(tab.fileViewMap);
+		return 1;
+	}
+
+	tab.hMutex = CreateMutex(
+		NULL,
+		FALSE,
+		TEXT("SO2_MUTEX"));
+
+	if (tab.hMutex == NULL) {
+		_tprintf(TEXT("Erro no CreateMutex\n"));
+		UnmapViewOfFile(tab.fileViewMap);
+		return 1;
+	}
+
+	tab.terminar = 0;
+
+	
+
+	//--------------------------------
+
 	COORD t;
 	t.X = 0;
 	t.Y = 0;
-	HANDLE hStdout;
 
 	HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
 
@@ -257,35 +390,28 @@ int _tmain(int argc, LPTSTR argv[]) {
 	
 	
 	
-	
-	hStdout = GetStdHandle(STD_OUTPUT_HANDLE);
-	FillConsoleOutputCharacter(hStdout, _T(' '), 1, t, &size);
+	FillConsoleOutputCharacter(hConsole, _T(' '), 1, t, &size);
 
 
 
 	int random_number = rand() % 20;
-	game.tabuleiro->tab[game.nFaixas-1][random_number] = 1;
+	game.tabuleiro.tab[game.nFaixas-1][random_number] = 1;
 
 	do {
 		random_number = rand() % 20;
-	} while (game.tabuleiro->tab[game.nFaixas - 1][random_number] == 1);
+	} while (game.tabuleiro.tab[game.nFaixas - 1][random_number] == 1);
 
-	game.tabuleiro->tab[game.nFaixas-1][random_number] = 1;
+	game.tabuleiro.tab[game.nFaixas-1][random_number] = 1;
 
+	game.change = 1;
+	hThread[1] = CreateThread(NULL, 0, EnviaTabuleiro, &tab, 0, NULL);
 
-	for (int i = 0; i < game.nFaixas; i++) {
-		_tprintf(TEXT("|"));
-		for (int y = 0; y < COLUNAS; y++)
-			if(game.tabuleiro->tab[i][y]!=1)
-				_tprintf(TEXT(" "));
-			else
-				_tprintf(TEXT("s"));
-		_tprintf(TEXT("|\n"));
-	}
+	if (hThread[1] == NULL)
+		_tprintf(TEXT("Problemas com a thread da tabela ...\n"));
 
-
-	dados.game = &game;
-
+	
+	//Sleep(2000);
+	
 
 	//-----------------------------------------------------------------------------------------------------------------------------------------------------------
 	
@@ -295,9 +421,13 @@ int _tmain(int argc, LPTSTR argv[]) {
 	
 
 	do {
-		FillConsoleOutputCharacter(hStdout, _T(' '), 80 * 1, pos, &size);
-		SetConsoleCursorPosition(hStdout, pos);
+		
 
+		FillConsoleOutputCharacter(hConsole, _T(' '), 80 * 1, pos, &size);
+		SetConsoleCursorPosition(hConsole, pos);
+
+		
+		
 		_tprintf(TEXT("COMANDO: "));
 		_fgetts(COM, 50, stdin);
 		
@@ -326,7 +456,7 @@ int _tmain(int argc, LPTSTR argv[]) {
 	//dados.terminar = 1;
 
 	//esperar que a thread termine
-	WaitForSingleObject(hThread, INFINITE);
+	WaitForMultipleObjects(2,hThread,TRUE, INFINITE);
 	UnmapViewOfFile(dados.memPar);
 	//CloseHandles ... mas é feito automaticamente quando o processo termina
 	
