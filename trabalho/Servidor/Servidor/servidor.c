@@ -11,15 +11,82 @@ typedef struct {
 
 GameInfo game;
 
+DWORD WINAPI ChangeTab(LPVOID param) {
+	Faixa* faixa = (Faixa*)param;
 
+	srand((unsigned)time(0) + GetCurrentThreadId());
+	faixa->stop = FALSE;
+	faixa->nCars = 0;
+	//
+	//_tprintf(TEXT("\nSTATE:%d\n"), faixa->state);
+	while (game.state!=3) {
+		for (int i = 0; i < COLUNAS; i++)
+			if (faixa->col[i].val == 2)
+				faixa->nCars++;
+			
+		WaitForSingleObject(game.gameMutex, INFINITE);
+			if (faixa->state == 1) {//normal
+				for (int i = COLUNAS - 1; i > 0; i--) {
+					if (faixa->col[i].val != 1) {
+						faixa->col[i].val = faixa->col[i - 1].val;
+						faixa->col[i - 1].val = 0;
+					}
+				}
+				if (random_60_40() == 2 && faixa->nCars<MAXCARROS)
+					faixa->col[0].val = 2;
+					
+
+				//_tprintf(TEXT("\nCARS:%d\n"), faixa->nCars);
+			}
+			else if (faixa->state == 2) {//inverso
+				for (int i = 0; i < COLUNAS; i++) {
+					if (faixa->col[i].val != 1) {
+						faixa->col[i].val = faixa->col[i + 1].val;
+						faixa->col[i + 1].val = 0;
+					}
+				}
+				if (random_60_40() == 2 && faixa->nCars < MAXCARROS)
+					faixa->col[COLUNAS - 1].val = 2;
+
+
+			}
+		
+		
+		
+		
+		//x++;
+		faixa->nCars = 0;
+		ReleaseMutex(game.gameMutex);
+		if (faixa->stop) {
+			Sleep(faixa->stopTime * 1000);
+			faixa->stop = FALSE;
+		}	
+		else
+		Sleep(faixa->velocCarros*200);
+		
+
+	}
+	//_tprintf(TEXT("C%d consumiu %d items.\n"), dados->id, soma);
+	
+	return 0;
+}
 //------------------------------------------ BUFFER CIRCULAR -------------------------------------------------------------
-DWORD WINAPI ThreadProdutor(LPVOID param) {
+DWORD WINAPI ThreadServidor(LPVOID param) {
 	DadosThreads* dados = (DadosThreads*)param;
 	CelulaBuffer cel;
 	//int contador = 0;
 	//int soma = 0;
 
-	while (!dados->terminar) {
+	COORD t;
+	t.X = 0;
+	t.Y = 25;
+	//DWORD size;
+
+	HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+
+	while (!(dados->terminar)) {
+		//FillConsoleOutputCharacter(hConsole, _T(' '), 80 * 1, t, &size);
+		SetConsoleCursorPosition(hConsole, t);
 		//aqui entramos na logica da aula teorica
 
 		//esperamos por uma posicao para lermos
@@ -47,10 +114,25 @@ DWORD WINAPI ThreadProdutor(LPVOID param) {
 		//soma += cel.val;
 		
 		_tprintf(TEXT("O%d comando: %d, %d.\n"), cel.id, cel.comando[0], cel.comando[1]);
-		if (cel.comando[0] == 2) {
-			for (int i = 0; i < COLUNAS; i++)
-				game.tabuleiro.tab[cel.comando[1]][i] = 1;
-			game.change = 1;
+		t.X++;
+		if (cel.comando[0] == 1) {
+			for (int i = 0; i < game.nFaixas; i++) { //parar por x tempo
+				game.faixa[i].stop=TRUE;
+				game.faixa[i].stopTime = cel.comando[1];
+			}
+				
+		}
+		else if (cel.comando[0] == 2) { //inverter sentido
+			if(game.faixa[cel.comando[1]].state==1)
+				game.faixa[cel.comando[1]].state = 2;
+			else
+				game.faixa[cel.comando[1]].state = 1;
+
+		}
+		else if (cel.comando[0] == 3) { //inserir obstaculos
+			if (game.faixa[cel.comando[1]].state==0)
+				game.faixa[cel.comando[1]].state = 1;
+
 		}
 			
 			
@@ -63,18 +145,17 @@ DWORD WINAPI ThreadProdutor(LPVOID param) {
 
 //------------------------------------------ MEMORIA PARTILHADA -------------------------------------------------------------
 DWORD WINAPI EnviaTabuleiro(LPVOID param) {
+	Sleep(1000);
 	//TCHAR msg[NUM_CHAR];
 	ThreadTab* dados = (ThreadTab*)param;
-	Sleep(1000);
 	COORD t, y;
 	t.X = 0; y.X = 9;
 	t.Y = 0; y.Y = 12;
 	DWORD size;
-
+		
 	HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
 
 	while (!(dados->terminar)) {
-		do {
 		
 			FillConsoleOutputCharacter(hConsole, _T(' '), 80 * 1, t, &size);
 			SetConsoleCursorPosition(hConsole,t);
@@ -82,33 +163,39 @@ DWORD WINAPI EnviaTabuleiro(LPVOID param) {
 			for (int i = 0; i < game.nFaixas; i++) {
 				_tprintf(TEXT("|"));
 				for (int y = 0; y < COLUNAS; y++)
-					if (game.tabuleiro.tab[i][y] != 1)
-						_tprintf(TEXT(" "));
-					else
+					if (game.faixa[i].col[y].val == 1) {
+						SetConsoleTextAttribute(hConsole, (FOREGROUND_GREEN));
 						_tprintf(TEXT("s"));
+						SetConsoleTextAttribute(hConsole, (FOREGROUND_BLUE | FOREGROUND_GREEN | FOREGROUND_RED));
+					}
+					else if (game.faixa[i].col[y].val == 2) {
+						SetConsoleTextAttribute(hConsole, (FOREGROUND_RED));
+						_tprintf(TEXT("c"));
+						SetConsoleTextAttribute(hConsole, (FOREGROUND_BLUE | FOREGROUND_GREEN | FOREGROUND_RED));
+					}	
+					else
+						_tprintf(TEXT(" "));
 				_tprintf(TEXT("|\n"));
 
 			}
 			SetConsoleCursorPosition(hConsole, y);
-			Sleep(1000);
-		} while (game.change == 0);
+			//Sleep(1000);
 
-		game.change = 0;
 		//faço lock ao mutex
 		WaitForSingleObject(dados->hMutex, INFINITE);
 
 		//limpa memoria antes de fazer a copia
 		ZeroMemory(dados->fileViewMap, sizeof(GameInfo));
-
+		//WaitForSingleObject(game.gameMutex, INFINITE);
 		//copia memoria de um sitio para outro (aqui copia a mensagem escrita no terminal para o fileViewMap)
 		CopyMemory(dados->fileViewMap, &game, sizeof(GameInfo));
-
+		//ReleaseMutex(game.gameMutex);
 		//liberto mutex
 		ReleaseMutex(dados->hMutex);
 
 		//criamos evento
 		SetEvent(dados->hEvent);
-		Sleep(500);
+		//Sleep(500);
 
 		ResetEvent(dados->hEvent); //torna o evento novamente não assinalado
 	}
@@ -120,8 +207,8 @@ DWORD WINAPI EnviaTabuleiro(LPVOID param) {
 int _tmain(int argc, LPTSTR argv[]) {
 	
 	//DadosThreads dados;
-	srand(time(NULL));
 	
+	srand((unsigned)time(0) + GetCurrentThreadId());
 	
 
 	TCHAR COM[50]; //COMANDOS
@@ -217,6 +304,13 @@ int _tmain(int argc, LPTSTR argv[]) {
 	}
 		
 	RegCloseKey(key);
+	for (int i = 0; i < game.nFaixas; i++) {
+		game.faixa[i].velocCarros = game.velocCarros;
+		game.faixa[i].id = i;
+		game.faixa[i].state = random_0_1_2();
+		//_tprintf(TEXT("\nyooooooooooo1:%d\n"), game.faixa[i].state);
+	}
+		
 	Sleep(2000); //EM PROGRESSO <-----------------------------
 
 	//------------------------------------------------------------------BUFFER CIRCULAR-----------------------------------------------------------------------
@@ -290,7 +384,7 @@ int _tmain(int argc, LPTSTR argv[]) {
 	
 
 	//lancamos a thread
-	hThread[0] = CreateThread(NULL, 0, ThreadProdutor, &dados, 0, NULL);
+	hThread[0] = CreateThread(NULL, 0, ThreadServidor, &dados, 0, NULL);
 
 	if (hThread[0] == NULL)
 		_tprintf(TEXT("Problemas com a thread do buffer circular ...\n"));
@@ -392,22 +486,33 @@ int _tmain(int argc, LPTSTR argv[]) {
 	
 	FillConsoleOutputCharacter(hConsole, _T(' '), 1, t, &size);
 
-
+	game.gameMutex = CreateMutex(NULL, FALSE, TEXT("GAME_MUTEX"));
 
 	int random_number = rand() % 20;
-	game.tabuleiro.tab[game.nFaixas-1][random_number] = 1;
+	game.faixa[game.nFaixas-1].col[random_number].val = 1;
 
 	do {
 		random_number = rand() % 20;
-	} while (game.tabuleiro.tab[game.nFaixas - 1][random_number] == 1);
+	} while (game.faixa[game.nFaixas - 1].col[random_number].val == 1);
 
-	game.tabuleiro.tab[game.nFaixas-1][random_number] = 1;
+	game.faixa[game.nFaixas-1].col[random_number].val = 1;
 
-	game.change = 1;
+	
+	HANDLE ThreadChangeTab[10];
+
+	for (int i = 1; i < game.nFaixas-1; i++) {
+		ThreadChangeTab[i] = CreateThread(NULL, 0, ChangeTab, &game.faixa[i], 0, NULL);
+
+		if (ThreadChangeTab[i] == NULL)
+			_tprintf(TEXT("Problemas com a thread de mudar a tabela ...\n"));
+	}
+
 	hThread[1] = CreateThread(NULL, 0, EnviaTabuleiro, &tab, 0, NULL);
 
 	if (hThread[1] == NULL)
 		_tprintf(TEXT("Problemas com a thread da tabela ...\n"));
+	
+	
 
 	
 	//Sleep(2000);
@@ -445,7 +550,8 @@ int _tmain(int argc, LPTSTR argv[]) {
 			game.state = 2;
 			
 
-		_tprintf(TEXT("Estado: %d\n"), game.state);
+
+		//_tprintf(TEXT("Estado: %d\n"), game.state);
 
 		
 
@@ -453,10 +559,12 @@ int _tmain(int argc, LPTSTR argv[]) {
 
 	game.state = 3;
 
-	//dados.terminar = 1;
+	dados.terminar = 1;
+	tab.terminar = 1;
 
 	//esperar que a thread termine
-	WaitForMultipleObjects(2,hThread,TRUE, INFINITE);
+	WaitForMultipleObjects(2,hThread,FALSE, 2000);
+	WaitForMultipleObjects(game.nFaixas, ThreadChangeTab , FALSE, 2000);
 	UnmapViewOfFile(dados.memPar);
 	//CloseHandles ... mas é feito automaticamente quando o processo termina
 	

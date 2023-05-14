@@ -1,6 +1,6 @@
 ﻿#include "../../header.h"
 
-DWORD WINAPI ThreadConsumidor(LPVOID param) {
+DWORD WINAPI ThreadOperador(LPVOID param) {
 	DadosThreads* dados = (DadosThreads*)param;
 	CelulaBuffer cel;
 	int contador = 0;
@@ -83,7 +83,7 @@ DWORD WINAPI ThreadConsumidor(LPVOID param) {
 DWORD WINAPI RecebeTabuleiro(LPVOID param) {
 	//TCHAR msg[NUM_CHAR];
 	ThreadTab* dados = (ThreadTab*)param;
-	Sleep(1000);
+	
 	COORD t, y;
 	t.X = 0; y.X = 9;
 	t.Y = 0; y.Y = 12;
@@ -109,21 +109,29 @@ DWORD WINAPI RecebeTabuleiro(LPVOID param) {
 
 		FillConsoleOutputCharacter(hConsole, _T(' '), 80 * 1, t, &size);
 		SetConsoleCursorPosition(hConsole, t);
-
 		for (int i = 0; i < dados->fileViewMap->nFaixas; i++) {
 			_tprintf(TEXT("|"));
 			for (int y = 0; y < COLUNAS; y++)
-				if (dados->fileViewMap->tabuleiro.tab[i][y] != 1)
-					_tprintf(TEXT(" "));
-				else
+				if (dados->fileViewMap->faixa[i].col[y].val == 1) {
+					SetConsoleTextAttribute(hConsole, (FOREGROUND_GREEN));
 					_tprintf(TEXT("s"));
+					SetConsoleTextAttribute(hConsole, (FOREGROUND_BLUE | FOREGROUND_GREEN | FOREGROUND_RED));
+				}
+				else if (dados->fileViewMap->faixa[i].col[y].val == 2) {
+					SetConsoleTextAttribute(hConsole, (FOREGROUND_BLUE));
+					_tprintf(TEXT("c"));
+					SetConsoleTextAttribute(hConsole, (FOREGROUND_BLUE | FOREGROUND_GREEN | FOREGROUND_RED));
+				}
+				else
+					_tprintf(TEXT(" "));
 			_tprintf(TEXT("|\n"));
+
 		}
 		SetConsoleCursorPosition(hConsole, y);
 		//faço unlock do mutex
 		ReleaseMutex(dados->hMutex);
 
-		Sleep(10000);
+		//Sleep(10000);
 	}
 
 	return 0;
@@ -187,7 +195,7 @@ int _tmain(int argc, LPTSTR argv[]) {
 
 
 	//lancamos a thread
-	hThread[0] = CreateThread(NULL, 0, ThreadConsumidor, &dados, 0, NULL);
+	hThread[0] = CreateThread(NULL, 0, ThreadOperador, &dados, 0, NULL);
 	if (hThread[0] == NULL) {
 		//_tprintf(TEXT("Escreva qualquer coisa para sair ...\n"));
 		//_getts_s(comando, 100);
