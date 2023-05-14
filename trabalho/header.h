@@ -24,16 +24,27 @@ typedef struct {
 }ThreadDados;
 */
 
+
+
 typedef struct {
-	int tab[10][COLUNAS];
-}Tabuleiro;
+	int val;
+}Coluna;
+
+typedef struct {
+	int id;
+	int velocCarros;
+	int state;
+	int nCars;
+	Coluna col[COLUNAS];
+}Faixa;
 
 typedef struct {
 	int nFaixas;
 	int velocCarros;
 	int state; // 0 - em jogo, 1 - pause, 2 - reiniciar, 3 - Encerrar Sistema
-	Tabuleiro tabuleiro;
 	int change;
+	Faixa faixa[MAXLINHAS];
+	HANDLE gameMutex;
 }GameInfo;
 
 typedef struct {
@@ -78,3 +89,15 @@ typedef struct {
 
 
 
+int random_60_40() {
+
+	//srand(time(NULL)); // inicializa o gerador de números aleatórios
+	int random_number = rand() % 10; // gera um número aleatório entre 0 e 9
+
+	if (random_number < 6) { // 60% de chance de retornar 1
+		return 1;
+	}
+	else { // 40% de chance de retornar 2
+		return 2;
+	}
+}
