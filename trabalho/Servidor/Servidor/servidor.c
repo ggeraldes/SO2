@@ -17,7 +17,7 @@ DWORD WINAPI ChangeTab(LPVOID param) {
 	srand((unsigned)time(0) + GetCurrentThreadId());
 	faixa->stop = FALSE;
 	faixa->nCars = 0;
-	//
+	
 	//_tprintf(TEXT("\nSTATE:%d\n"), faixa->state);
 	while (game.state!=3) {
 		for (int i = 0; i < COLUNAS; i++)
@@ -27,12 +27,16 @@ DWORD WINAPI ChangeTab(LPVOID param) {
 		WaitForSingleObject(game.gameMutex, INFINITE);
 			if (faixa->state == 1) {//normal
 				for (int i = COLUNAS - 1; i > 0; i--) {
-					if (faixa->col[i].val != 1) {
-						faixa->col[i].val = faixa->col[i - 1].val;
-						faixa->col[i - 1].val = 0;
+					if (faixa->col[i].val != 1 && faixa->col[i].val != 3 && faixa->col[i-1].val != 3 && faixa->col[i].val != 2) {
+								faixa->col[i].val = faixa->col[i - 1].val;
+								faixa->col[i - 1].val = 0;
+							
 					}
+					if(faixa->col[i-1].val == 2 && i== COLUNAS - 1)
+						faixa->col[i].val = 0;
 				}
 				if (random_60_40() == 2 && faixa->nCars<MAXCARROS)
+					if (faixa->col[0].val != 3)
 					faixa->col[0].val = 2;
 					
 
@@ -40,13 +44,17 @@ DWORD WINAPI ChangeTab(LPVOID param) {
 			}
 			else if (faixa->state == 2) {//inverso
 				for (int i = 0; i < COLUNAS; i++) {
-					if (faixa->col[i].val != 1) {
-						faixa->col[i].val = faixa->col[i + 1].val;
-						faixa->col[i + 1].val = 0;
+					if (faixa->col[i].val != 1 && faixa->col[i].val != 3 && faixa->col[i + 1].val != 3 && faixa->col[i].val != 2) {
+							faixa->col[i].val = faixa->col[i + 1].val;
+							faixa->col[i + 1].val = 0;
+						
 					}
+					if (faixa->col[i+1].val == 2 && i == 0)
+						faixa->col[i].val = 0;
 				}
 				if (random_60_40() == 2 && faixa->nCars < MAXCARROS)
-					faixa->col[COLUNAS - 1].val = 2;
+					if(faixa->col[COLUNAS - 1].val != 3)
+						faixa->col[COLUNAS - 1].val = 2;
 
 
 			}
@@ -119,6 +127,7 @@ DWORD WINAPI ThreadServidor(LPVOID param) {
 			for (int i = 0; i < game.nFaixas; i++) { //parar por x tempo
 				game.faixa[i].stop=TRUE;
 				game.faixa[i].stopTime = cel.comando[1];
+				
 			}
 				
 		}
@@ -130,8 +139,7 @@ DWORD WINAPI ThreadServidor(LPVOID param) {
 
 		}
 		else if (cel.comando[0] == 3) { //inserir obstaculos
-			if (game.faixa[cel.comando[1]].state==0)
-				game.faixa[cel.comando[1]].state = 1;
+				game.faixa[cel.comando[1]].col[cel.comando[2]].val = 3;
 
 		}
 			
@@ -160,8 +168,15 @@ DWORD WINAPI EnviaTabuleiro(LPVOID param) {
 			FillConsoleOutputCharacter(hConsole, _T(' '), 80 * 1, t, &size);
 			SetConsoleCursorPosition(hConsole,t);
 
+			_tprintf(TEXT("  "));
+			for(int i=0;i<10;i++)
+				_tprintf(TEXT("%d"), i);
+			for (int i = 0; i < 10; i++)
+				_tprintf(TEXT("%d"), i);
+			_tprintf(TEXT("\n"));
+
 			for (int i = 0; i < game.nFaixas; i++) {
-				_tprintf(TEXT("|"));
+				_tprintf(TEXT("%d|"), i);
 				for (int y = 0; y < COLUNAS; y++)
 					if (game.faixa[i].col[y].val == 1) {
 						SetConsoleTextAttribute(hConsole, (FOREGROUND_GREEN));
@@ -172,7 +187,12 @@ DWORD WINAPI EnviaTabuleiro(LPVOID param) {
 						SetConsoleTextAttribute(hConsole, (FOREGROUND_RED));
 						_tprintf(TEXT("c"));
 						SetConsoleTextAttribute(hConsole, (FOREGROUND_BLUE | FOREGROUND_GREEN | FOREGROUND_RED));
-					}	
+					}
+					else if (game.faixa[i].col[y].val == 3) {
+						SetConsoleTextAttribute(hConsole, (FOREGROUND_BLUE));
+						_tprintf(TEXT("B"));
+						SetConsoleTextAttribute(hConsole, (FOREGROUND_BLUE | FOREGROUND_GREEN | FOREGROUND_RED));
+					}
 					else
 						_tprintf(TEXT(" "));
 				_tprintf(TEXT("|\n"));
@@ -195,7 +215,7 @@ DWORD WINAPI EnviaTabuleiro(LPVOID param) {
 
 		//criamos evento
 		SetEvent(dados->hEvent);
-		//Sleep(500);
+		Sleep(game.velocCarros * 200);
 
 		ResetEvent(dados->hEvent); //torna o evento novamente não assinalado
 	}
@@ -228,6 +248,36 @@ int _tmain(int argc, LPTSTR argv[]) {
 	_setmode(_fileno(stdin), _O_WTEXT);
 	_setmode(_fileno(stdout), _O_WTEXT);
 #endif
+	//-------------------------------------------------------------------------------------------------------------
+	HANDLE hFileMapBC; //handle para o file map
+	HANDLE hThread[2];
+	BOOL  primeiroProcesso = FALSE;
+
+
+	//o openfilemapping vai abrir um filemapping com o nome que passamos no lpName
+	//se devolver um HANDLE ja existe entao fechamos
+	//se devolver NULL nao existe e vamos fazer a inicializacao
+
+	if (OpenFileMapping(FILE_MAP_ALL_ACCESS, FALSE, TEXT("SO2_MEM_PARTILHADA"))) {
+		_tprintf(TEXT("Servidor já se encontra aberto\n"));
+		return -1;
+	}
+
+	primeiroProcesso = TRUE;
+	//criamos o bloco de memoria partilhada
+	hFileMapBC = CreateFileMapping(
+		INVALID_HANDLE_VALUE,
+		NULL,
+		PAGE_READWRITE,
+		0,
+		sizeof(BufferCircular), //tamanho da memoria partilhada
+		TEXT("SO2_MEM_PARTILHADA"));//nome do filemapping. nome que vai ser usado para partilha entre processos
+
+	if (hFileMapBC == NULL) {
+		_tprintf(TEXT("Erro no CreateFileMapping\n"));
+		return -1;
+	}
+	//-----------------------------------------------------------------------------------------------------------
 
 	do{
 		_tprintf(TEXT("Fazer especificação inicial? "));
@@ -241,7 +291,7 @@ int _tmain(int argc, LPTSTR argv[]) {
 		do {
 			_tprintf(TEXT("Número de faixas: "));
 			_tscanf_s(TEXT("%d"), &game.nFaixas);
-		} while (game.nFaixas > 10);
+		} while (game.nFaixas > 10 || game.nFaixas < 3);
 
 		_tprintf(TEXT("Velocidade Inicial carros: "));
 		_tscanf_s(TEXT("%d"), &game.velocCarros);
@@ -263,7 +313,7 @@ int _tmain(int argc, LPTSTR argv[]) {
 			do {
 				_tprintf(TEXT("\nNúmero de faixas: "));
 				_tscanf_s(TEXT("%d"), &game.nFaixas);
-			} while (game.nFaixas > 10);
+			} while (game.nFaixas > 10 && game.nFaixas<3);
 
 			_tprintf(TEXT("\nVelocidade Inicial carros: "));
 			_tcscanf_s(TEXT("%d"), &game.velocCarros);
@@ -316,11 +366,7 @@ int _tmain(int argc, LPTSTR argv[]) {
 	//------------------------------------------------------------------BUFFER CIRCULAR-----------------------------------------------------------------------
 
 	DadosThreads dados;
-	HANDLE hFileMapBC; //handle para o file map
-	HANDLE hThread[2];
-	//DadosThreads dados;
-	//TCHAR comando[100];
-	BOOL  primeiroProcesso = FALSE;
+	
 
 
 	//criar semaforo que conta as escritas
@@ -338,32 +384,7 @@ int _tmain(int argc, LPTSTR argv[]) {
 		_tprintf(TEXT("Erro no CreateSemaphore\n"));
 		return -1;
 	}
-
-
-	//o openfilemapping vai abrir um filemapping com o nome que passamos no lpName
-	//se devolver um HANDLE ja existe entao fechamos
-	//se devolver NULL nao existe e vamos fazer a inicializacao
-
-	if (OpenFileMapping(FILE_MAP_ALL_ACCESS, FALSE, TEXT("SO2_MEM_PARTILHADA"))) {
-		_tprintf(TEXT("Servidor já se encontra aberto\n"));
-		return -1;
-	}
-	else{
-		primeiroProcesso = TRUE;
-		//criamos o bloco de memoria partilhada
-		hFileMapBC = CreateFileMapping(
-			INVALID_HANDLE_VALUE,
-			NULL,
-			PAGE_READWRITE,
-			0,
-			sizeof(BufferCircular), //tamanho da memoria partilhada
-			TEXT("SO2_MEM_PARTILHADA"));//nome do filemapping. nome que vai ser usado para partilha entre processos
-
-		if (hFileMapBC == NULL) {
-			_tprintf(TEXT("Erro no CreateFileMapping\n"));
-			return -1;
-		}
-	}
+	
 
 	//mapeamos o bloco de memoria para o espaco de enderaçamento do nosso processo
 	dados.memPar = (BufferCircular*)MapViewOfFile(hFileMapBC, FILE_MAP_ALL_ACCESS, 0, 0, 0);

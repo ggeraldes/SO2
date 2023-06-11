@@ -63,7 +63,7 @@ typedef struct {
 //estrutura para o buffer circular
 typedef struct {
 	int id;
-	int comando[2]; //comando, segundo comando
+	int comando[3]; //comando, segundo comando, terceiro comando
 }CelulaBuffer;
 
 

@@ -1,5 +1,9 @@
 ﻿#include "../../header.h"
 
+
+COORD geral;
+CONSOLE_SCREEN_BUFFER_INFO csbi;
+
 DWORD WINAPI ThreadOperador(LPVOID param) {
 	DadosThreads* dados = (DadosThreads*)param;
 	CelulaBuffer cel;
@@ -30,6 +34,9 @@ DWORD WINAPI ThreadOperador(LPVOID param) {
 			cel.comando[0] = 1;
 			_tprintf(TEXT("TEMPO: "));
 			_tscanf_s(TEXT("%d"), &cel.comando[1]);
+			pos.Y += 1;
+			FillConsoleOutputCharacter(hConsole, _T(' '), 80 * 1, pos, &size);
+			pos.Y -= 1;
 
 		}
 		else if (_tcscmp(COM, TEXT("invert")) == 0) {
@@ -37,6 +44,9 @@ DWORD WINAPI ThreadOperador(LPVOID param) {
 			cel.comando[0] = 2;
 			_tprintf(TEXT("FAIXA: "));
 			_tscanf_s(TEXT("%d"), &cel.comando[1]);
+			pos.Y += 1;
+			FillConsoleOutputCharacter(hConsole, _T(' '), 80 * 1, pos, &size);
+			pos.Y -= 1;
 
 		}
 		else if (_tcscmp(COM, TEXT("insert")) == 0) {
@@ -44,6 +54,11 @@ DWORD WINAPI ThreadOperador(LPVOID param) {
 			cel.comando[0] = 3;
 			_tprintf(TEXT("FAIXA: "));
 			_tscanf_s(TEXT("%d"), &cel.comando[1]);
+			_tprintf(TEXT("COLUNA: "));
+			_tscanf_s(TEXT("%d"), &cel.comando[2]);
+			pos.Y += 1;
+			FillConsoleOutputCharacter(hConsole, _T(' '), 80 * 2, pos, &size);
+			pos.Y -= 1;
 		}
 		else if (_tcscmp(COM, TEXT("close")) == 0) 
 			return 1;
@@ -84,14 +99,15 @@ DWORD WINAPI RecebeTabuleiro(LPVOID param) {
 	//TCHAR msg[NUM_CHAR];
 	ThreadTab* dados = (ThreadTab*)param;
 	
-	COORD t, y;
-	t.X = 0; y.X = 9;
-	t.Y = 0; y.Y = 12;
+	COORD t;
+	t.X = 0; t.Y = 0;
 	DWORD size;
 	HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
 	HANDLE hBack = hConsole;
-	while (1) {
 
+	
+	while (1) {
+		GetConsoleScreenBufferInfo(hConsole, &csbi);
 
 
 		//esperar até que evento desbloqueie
@@ -109,8 +125,17 @@ DWORD WINAPI RecebeTabuleiro(LPVOID param) {
 
 		FillConsoleOutputCharacter(hConsole, _T(' '), 80 * 1, t, &size);
 		SetConsoleCursorPosition(hConsole, t);
+
+		_tprintf(TEXT("  "));
+		for (int i = 0; i < 10; i++)
+			_tprintf(TEXT("%d"), i);
+		for (int i = 0; i < 10; i++)
+			_tprintf(TEXT("%d"), i);
+		_tprintf(TEXT("\n"));
+
+
 		for (int i = 0; i < dados->fileViewMap->nFaixas; i++) {
-			_tprintf(TEXT("|"));
+			_tprintf(TEXT("%d|"), i);
 			for (int y = 0; y < COLUNAS; y++)
 				if (dados->fileViewMap->faixa[i].col[y].val == 1) {
 					SetConsoleTextAttribute(hConsole, (FOREGROUND_GREEN));
@@ -122,16 +147,22 @@ DWORD WINAPI RecebeTabuleiro(LPVOID param) {
 					_tprintf(TEXT("c"));
 					SetConsoleTextAttribute(hConsole, (FOREGROUND_BLUE | FOREGROUND_GREEN | FOREGROUND_RED));
 				}
+				else if (dados->fileViewMap->faixa[i].col[y].val == 3) {
+					SetConsoleTextAttribute(hConsole, (FOREGROUND_RED));
+					_tprintf(TEXT("B"));
+					SetConsoleTextAttribute(hConsole, (FOREGROUND_BLUE | FOREGROUND_GREEN | FOREGROUND_RED));
+				}
 				else
 					_tprintf(TEXT(" "));
 			_tprintf(TEXT("|\n"));
 
 		}
-		SetConsoleCursorPosition(hConsole, y);
+		geral = csbi.dwCursorPosition;
+		SetConsoleCursorPosition(hConsole, geral);
 		//faço unlock do mutex
 		ReleaseMutex(dados->hMutex);
 
-		//Sleep(10000);
+		Sleep(dados->fileViewMap->velocCarros*200);
 	}
 
 	return 0;
@@ -203,6 +234,7 @@ int _tmain(int argc, LPTSTR argv[]) {
 		return -1;
 		
 	}
+	Sleep(1000);
 	//---------------------------------------------------------------------------TABULEIRO-----------------------------------------------------------------------
 	//---------------------- MEMORIA PARTILHADA ------------------------------
 	HANDLE hFileMap;
@@ -276,7 +308,7 @@ int _tmain(int argc, LPTSTR argv[]) {
 
 	//--------------------------------
 	//esperar que a thread termine
-	WaitForMultipleObjects(2, hThread, TRUE, INFINITE);
+	WaitForMultipleObjects(2, hThread, FALSE, INFINITE);
 	UnmapViewOfFile(dados.memPar);
 	//CloseHandles ... mas é feito automaticamente quando o processo termina
 	
