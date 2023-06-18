@@ -6,10 +6,11 @@ CONSOLE_SCREEN_BUFFER_INFO csbi;
 
 typedef struct {
 	int posX, posY; //posicao
-	int mov; //movimentos
+	// mov; //movimentos
 }Sapo;
 
 GameInfo game;
+Sapo posSapo[2];
 
 //---------------------------------------------------PIPES---------------------------------------------
 
@@ -33,25 +34,25 @@ DWORD WINAPI ThreadEscrevePipe(LPVOID param) {
 	//aqui , o servidor já recebeu um cliente
 	do {
 		//vai buscar informação à consola
-		_tprintf(TEXT("[ESCRITOR] Frase: "));
-		_fgetts(buf, 256, stdin);
-		buf[_tcslen(buf) - 1] = '\0';
+		//_tprintf(TEXT("[ESCRITOR] Frase: "));
+		//_fgetts(buf, 256, stdin);
+		//buf[_tcslen(buf) - 1] = '\0';
 
 		//bloqueamos aqui porque é uma regiao critica
 		WaitForSingleObject(dados->hMutex, INFINITE);
 
 		//escreve no named pipe
 		for (i = 0; i < dados->numClientes; i++) {
-			if (!WriteFile(dados->hPipe[i], buf, _tcslen(buf) * sizeof(TCHAR), &n, NULL)) {
+			if (!WriteFile(dados->hPipe[i], &game, sizeof(GameInfo), &n, NULL)) {
 				_tprintf(TEXT("[ERRO] Escrever no pipe! (WriteFile)\n"));
 				exit(-1);
 			}
 
-			_tprintf(TEXT("[ESCRITOR] Enviei %d bytes ao leitor [%d]... (WriteFile)\n"), n, i);
+			//_tprintf(TEXT("[ESCRITOR] Enviei %d bytes ao leitor [%d]... (WriteFile)\n"), n, i);
 		}
 		//libertamos o mutex
 		ReleaseMutex(dados->hMutex);
-
+		Sleep(game.velocCarros * 200);
 
 	} while (_tcscmp(buf, TEXT("fim")));
 
@@ -63,7 +64,7 @@ DWORD WINAPI ThreadEscrevePipe(LPVOID param) {
 
 DWORD WINAPI ThreadLePipe(LPVOID param) {
 	ThreadDados* dados = (ThreadDados*)param;
-	TCHAR buf[256];
+	int comando=0;
 	DWORD n;
 	BOOL ret;
 	do {
@@ -72,23 +73,88 @@ DWORD WINAPI ThreadLePipe(LPVOID param) {
 		for (int i = 0; i < dados->numClientes; i++) {
 
 
-			ret = ReadFile(dados->hPipe[i], buf, sizeof(buf), &n, NULL);
+			ret = ReadFile(dados->hPipe[i], &comando, sizeof(comando), &n, NULL);
 
-			//termina corretamente a string
-			buf[n / sizeof(TCHAR)] = '\0';
+			
 
 			if (!ret || !n) {
 				_tprintf(TEXT("[LEITOR] %d %d... (ReadFile)\n"), ret, n);
 				break;
 			}
 
-			_tprintf(TEXT("[LEITOR] Recebi %d bytes: '%s'... (ReadFile)\n"), n, buf);
+			//_tprintf(TEXT("[LEITOR] Recebi %d bytes: '%s'... (ReadFile)\n"), n, buf);
+			WaitForSingleObject(game.gameMutex, INFINITE);
+				if (comando == 1) {
+					if (posSapo[0].posX-1 == 0) {
+						game.faixa[posSapo[0].posX].col[posSapo[0].posY].val = 0;
+						game.faixa[posSapo[0].posX-1].col[posSapo[0].posY].val = 1;
+						posSapo[0].posX = posSapo[0].posX - 1;
+						printf("SAPO 1 VENCEU!");
+						game.state = 3;
+
+					}
+					if (game.faixa[posSapo[0].posX - 1].col[posSapo[0].posY].val == 2 || game.faixa[posSapo[0].posX - 1].col[posSapo[0].posY].val == 3) {
+						game.faixa[posSapo[0].posX].col[posSapo[0].posY].val = 0;
+						game.faixa[game.nFaixas - 1].col[posSapo[0].posY].val = 1;
+						posSapo[0].posX = game.nFaixas-1;
+					}
+					else {
+						game.faixa[posSapo[0].posX].col[posSapo[0].posY].val = 0;
+						game.faixa[posSapo[0].posX-1].col[posSapo[0].posY].val = 1;
+						posSapo[0].posX = posSapo[0].posX - 1;
+					}
+				}
+				else if (comando == 2) {
+					if (posSapo[0].posX + 1 <= game.nFaixas-1) {
+						if (game.faixa[posSapo[0].posX + 1].col[posSapo[0].posY].val == 2 || game.faixa[posSapo[0].posX + 1].col[posSapo[0].posY].val == 3) {
+							game.faixa[posSapo[0].posX].col[posSapo[0].posY].val = 0;
+							game.faixa[game.nFaixas - 1].col[posSapo[0].posY].val = 1;
+							posSapo[0].posX = game.nFaixas - 1;
+						}
+						else {
+							game.faixa[posSapo[0].posX].col[posSapo[0].posY].val = 0;
+							game.faixa[posSapo[0].posX + 1].col[posSapo[0].posY].val = 1;
+							posSapo[0].posX = posSapo[0].posX + 1;
+						}
+
+					}
+					
+				}
+				else if (comando == 3) {
+					if (posSapo[0].posY - 1 >= 0) {
+						if (game.faixa[posSapo[0].posX].col[posSapo[0].posY - 1].val == 2 || game.faixa[posSapo[0].posX].col[posSapo[0].posY - 1].val == 3) {
+							game.faixa[posSapo[0].posX].col[posSapo[0].posY].val = 0;
+							game.faixa[game.nFaixas - 1].col[posSapo[0].posY].val = 1;
+							posSapo[0].posX = game.nFaixas - 1;
+						}
+						else {
+							game.faixa[posSapo[0].posX].col[posSapo[0].posY].val = 0;
+							game.faixa[posSapo[0].posX].col[posSapo[0].posY - 1].val = 1;
+							posSapo[0].posY = posSapo[0].posY - 1;
+						}
+					}
+				}
+				else if (comando == 4) {
+					if (posSapo[0].posY + 1 <= COLUNAS-1) {
+						if (game.faixa[posSapo[0].posX].col[posSapo[0].posY + 1].val == 2 || game.faixa[posSapo[0].posX].col[posSapo[0].posY + 1].val == 3) {
+							game.faixa[posSapo[0].posX].col[posSapo[0].posY].val = 0;
+							game.faixa[game.nFaixas - 1].col[posSapo[0].posY].val = 1;
+							posSapo[0].posX = game.nFaixas - 1;
+						}
+						else {
+							game.faixa[posSapo[0].posX].col[posSapo[0].posY].val = 0;
+							game.faixa[posSapo[0].posX].col[posSapo[0].posY + 1].val = 1;
+							posSapo[0].posY = posSapo[0].posY + 1;
+						}
+					}
+				}
+			ReleaseMutex(game.gameMutex);
 
 
 		}
 		// Libera a permissão de escrita
 		ReleaseMutex(dados->hMutex);
-	} while (dados->terminar != 1);
+	} while (game.state!=3);
 
 	return;
 }
@@ -189,12 +255,16 @@ void newTab() {
 
 		int random_number = rand() % 20;
 		game.faixa[game.nFaixas - 1].col[random_number].val = 1;
+		posSapo[0].posX = game.nFaixas - 1;
+		posSapo[0].posY = random_number;
 
 		do {
 			random_number = rand() % 20;
 		} while (game.faixa[game.nFaixas - 1].col[random_number].val == 1);
 
 		game.faixa[game.nFaixas - 1].col[random_number].val = 1;
+		posSapo[1].posX = game.nFaixas - 1;
+		posSapo[1].posY = random_number;
 	ReleaseMutex(game.gameMutex);
 }
 
@@ -217,10 +287,20 @@ DWORD WINAPI ChangeTab(LPVOID param) {
 				if (faixa->col[i].val == 2 && i == COLUNAS - 1)
 					faixa->col[i].val = 0;
 
-
-				if (faixa->col[i].val != 1 && faixa->col[i].val != 3 && faixa->col[i - 1].val != 3 && faixa->col[i].val != 2) {
-					faixa->col[i].val = faixa->col[i - 1].val;
-					faixa->col[i - 1].val = 0;
+				if(faixa->col[i-1].val != 1)
+				if (faixa->col[i].val != 3 && faixa->col[i - 1].val != 3 && faixa->col[i].val != 2) {
+					if (faixa->col[i].val == 1 && faixa->col[i-1].val == 2) {
+						game.faixa[game.nFaixas - 1].col[posSapo[0].posY].val = 1;
+						posSapo[0].posX = game.nFaixas - 1;
+						faixa->col[i].val = faixa->col[i - 1].val;
+						faixa->col[i - 1].val = 0;
+					}
+					if (faixa->col[i].val != 1)
+					{
+						faixa->col[i].val = faixa->col[i - 1].val;
+						faixa->col[i - 1].val = 0;
+					}
+						
 
 				}
 
@@ -238,9 +318,20 @@ DWORD WINAPI ChangeTab(LPVOID param) {
 				if (faixa->col[i].val == 2 && i == 0)
 					faixa->col[i].val = 0;
 
-				if (faixa->col[i].val != 1 && faixa->col[i].val != 3 && faixa->col[i + 1].val != 3 && faixa->col[i].val != 2) {
-					faixa->col[i].val = faixa->col[i + 1].val;
-					faixa->col[i + 1].val = 0;
+				if (faixa->col[i + 1].val != 1)
+				if (faixa->col[i].val != 3 && faixa->col[i + 1].val != 3 && faixa->col[i].val != 2) {
+
+					if (faixa->col[i].val == 1 && faixa->col[i + 1].val == 2) {
+						game.faixa[game.nFaixas - 1].col[posSapo[0].posY].val = 1;
+						posSapo[0].posX = game.nFaixas - 1;
+						faixa->col[i].val = faixa->col[i + 1].val;
+						faixa->col[i + 1].val = 0;
+					}
+					if (faixa->col[i].val != 1) {
+						faixa->col[i].val = faixa->col[i + 1].val;
+						faixa->col[i + 1].val = 0;
+					}
+					
 
 				}
 
@@ -811,10 +902,8 @@ int _tmain(int argc, LPTSTR argv[]) {
 		_tprintf(TEXT("[Erro] ao criar thread!\n"));
 		return -1;
 	}
+	
 
-
-	//esperar que a thread termine
-	WaitForMultipleObjects(4, hThread, TRUE, INFINITE);
 
 	//desligamos todos os clientes que se ligaram
 	for (int i = 0; i < sapo[0].numClientes; i++) {
@@ -827,15 +916,7 @@ int _tmain(int argc, LPTSTR argv[]) {
 		}
 	}
 
-	for (int i = 0; i < sapo[1].numClientes; i++) {
-		_tprintf(TEXT("[ESCRITOR] Desligar o pipe (DisconnectNamedPipe)\n"));
-
-		//desliga a instancia ao named pipe
-		if (!DisconnectNamedPipe(sapo[1].hPipe[i])) {
-			_tprintf(TEXT("[ERRO] Desligar o pipe! (DisconnectNamedPipe)"));
-			exit(-1);
-		}
-	}
+	
 
 	//-----------------------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -885,6 +966,18 @@ int _tmain(int argc, LPTSTR argv[]) {
 	WaitForMultipleObjects(6, hThread, TRUE, INFINITE);
 	WaitForMultipleObjects(game.nFaixas-2, ThreadChangeTab, TRUE, INFINITE);
 	UnmapViewOfFile(dados.memPar);
+
+	//----------------------------------------pipes-------------------------------
+	for (int i = 0; i < sapo[1].numClientes; i++) {
+		_tprintf(TEXT("[ESCRITOR] Desligar o pipe (DisconnectNamedPipe)\n"));
+
+		//desliga a instancia ao named pipe
+		if (!DisconnectNamedPipe(sapo[1].hPipe[i])) {
+			_tprintf(TEXT("[ERRO] Desligar o pipe! (DisconnectNamedPipe)"));
+			exit(-1);
+		}
+	}
+	//----------------------------------------.....-------------------------------
 	//CloseHandles ... mas é feito automaticamente quando o processo termina
 
 

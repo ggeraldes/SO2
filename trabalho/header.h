@@ -32,10 +32,7 @@ typedef struct {
 
 typedef struct {
 	int id;
-	int velocCarros;
 	int state; //0 - sem obstaculo, 1 - obstaculo direita, 2 - obstaculo esquerda
-	BOOL stop;
-	int stopTime; //se estiver no estado stop
 	int nCars;
 	Coluna col[COLUNAS];
 }Faixa;
@@ -44,8 +41,12 @@ typedef struct {
 	int nFaixas;
 	int velocCarros;
 	int state; // 0 - em jogo, 1 - pause, 2 - reiniciar, 3 - Encerrar Sistema
+	BOOL stop;
+	int stopTime; //se estiver no estado stop
 	Faixa faixa[MAXLINHAS];
 	HANDLE gameMutex;
+	HANDLE hMutexG;
+	HWND hWnd;
 }GameInfo;
 
 typedef struct {
@@ -104,9 +105,5 @@ int random_60_40() {
 }
 
 int random_0_1_2() {
-
-
-	int random_value = rand() % 3;
-
-	return random_value;
+	return rand() % 3;  // Modulo 3 restricts the result to 0, 1, or 2
 }

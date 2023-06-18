@@ -17,41 +17,37 @@ typedef struct {
 }ThreadDados;
 
 GameInfo game;
+ThreadDados dados[2];
 //-----------------------------------------------------------------------------------
 
 //------------------------------------------threads----------------------------------------------------
-DWORD WINAPI ThreadEscrevePipe(LPVOID param) {
-	ThreadDados* dados = (ThreadDados*)param;
-	TCHAR buf[256];
+void EscrevePipe(int comando) {
+	
 	DWORD n;
 
 	//aqui , o servidor já recebeu um cliente
-	do {
+	
 		//vai buscar informação à consola
-		_tprintf(TEXT("[SAPO] Frase: "));
-		_fgetts(buf, 256, stdin);
-		buf[_tcslen(buf) - 1] = '\0';
 		//_tprintf(TEXT("kkkkkkkkkkkkkkkkkk"));
 		//bloqueamos aqui porque é uma regiao critica
-		WaitForSingleObject(dados->hMutex, INFINITE);
+		WaitForSingleObject(dados[1].hMutex, INFINITE);
 
 		//escreve no named pipe
 
-		if (!WriteFile(dados->hPipe, buf, _tcslen(buf) * sizeof(TCHAR), &n, NULL)) {
+		if (!WriteFile(dados[1].hPipe, &comando, sizeof(comando), &n, NULL)) {
 			_tprintf(TEXT("[ERRO] Escrever no pipe! (WriteFile)\n"));
 			exit(-1);
 		}
 
-		_tprintf(TEXT("[ESCRITOR] Enviei %d bytes ao servidor... (WriteFile)\n"), n);
+		//_tprintf(TEXT("[ESCRITOR] Enviei %d bytes ao servidor... (WriteFile)\n"), n);
 		//libertamos o mutex
-		ReleaseMutex(dados->hMutex);
+		ReleaseMutex(dados[1].hMutex);
 
 
-	} while (_tcscmp(buf, TEXT("fim")));
+	
 
-	dados->terminar = 1;
+	//dados[1].terminar = 1;
 
-	return 0;
 }
 
 DWORD WINAPI ThreadLePipe(LPVOID param) {
@@ -78,9 +74,11 @@ DWORD WINAPI ThreadLePipe(LPVOID param) {
 		//_tprintf(TEXT("[LEITOR] Recebi %d bytes: '%s'... (ReadFile)\n"), n, buf);
 		// Libera a permissão de escrita
 		ReleaseMutex(dados->hMutex);
+		InvalidateRect(game.hWnd, NULL, TRUE);//chamada ao WM_PAINT
 	}
 
 	CloseHandle(dados->hPipe);
+	ExitProcess(0);
 	return;
 }
 //----------------------------------------------------------------------------------------------------
@@ -91,31 +89,32 @@ TCHAR szProgName[] = TEXT("Base");
 
 int WINAPI _tWinMain(HINSTANCE hInst, HINSTANCE hPrevInst, LPTSTR lpCmdLine, int nCmdShow) {
 
-
-	ThreadDados dados[2];
+	
+	
 	HANDLE hThread[2];
 	dados[0].terminar = 0;
 	dados[1].terminar = 0;
-
+	
 #ifdef UNICODE
 	_setmode(_fileno(stdin), _O_WTEXT);
 	_setmode(_fileno(stdout), _O_WTEXT);
 #endif
-
+	
 	dados[0].hMutex = CreateMutex(NULL, FALSE, NULL); //Criação do mutex
 
 	if (dados[0].hMutex == NULL) {
 		_tprintf(TEXT("[Erro] ao criar mutex!\n"));
 		return -1;
 	}
-
+	
 	//espera que exista um named pipe para ler do mesmo
 	//bloqueia aqui
 	if (!WaitNamedPipe(PIPE_READ, NMPWAIT_WAIT_FOREVER)) {
 		_tprintf(TEXT("[ERRO] Ligar ao pipe '%s'! (WaitNamedPipe)\n"), PIPE_READ);
 		exit(-1);
 	}
-
+	
+	
 	dados[1].hMutex = CreateMutex(NULL, FALSE, NULL); //Criação do mutex
 
 	if (dados[1].hMutex == NULL) {
@@ -129,39 +128,33 @@ int WINAPI _tWinMain(HINSTANCE hInst, HINSTANCE hPrevInst, LPTSTR lpCmdLine, int
 		_tprintf(TEXT("[ERRO] Ligar ao pipe '%s'! (WaitNamedPipe)\n"), PIPE_WRITE);
 		exit(-1);
 	}
+	
 
 	//_tprintf(TEXT("[LEITOR] Ligação ao pipe do escritor... (CreateFile)\n"));
-
+	
 	//ligamo-nos ao named pipe que ja existe nesta altura
 	//1º nome do named pipe, 2ºpermissoes (têm de ser iguais ao CreateNamedPipe do servidor), 3ºshared mode 0 aqui,
 	//4º security atributes, 5ºflags de criação OPEN_EXISTING, 6º o default é FILE_ATTRIBUTE_NORMAL e o 7º é o template é NULL
 	dados[0].hPipe = CreateFile(PIPE_READ, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-
+	
 	if (dados[0].hPipe == NULL) {
 		_tprintf(TEXT("[ERRO] Ligar ao pipe '%s'! (CreateFile)\n"), PIPE_READ);
 		exit(-1);
 	}
-
-	//_tprintf(TEXT("[LEITOR] Liguei-me...\n"));
-
+	
+	
 	dados[1].hPipe = CreateFile(PIPE_WRITE, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-
+	/*
 	if (dados[1].hPipe == NULL) {
 		_tprintf(TEXT("[ERRO] Ligar ao pipe '%s'! (CreateFile)\n"), PIPE_WRITE);
 		exit(-1);
 	}
-
+	
 	//_tprintf(TEXT("[LEITOR] Liguei-me...\n"));
-
+	*/
 
 	hThread[0] = CreateThread(NULL, 0, ThreadLePipe, &dados[0], 0, NULL);
 	if (hThread[0] == NULL) {
-		_tprintf(TEXT("[Erro] ao criar thread!\n"));
-		return -1;
-	}
-
-	hThread[1] = CreateThread(NULL, 0, ThreadEscrevePipe, &dados[1], 0, NULL);
-	if (hThread[1] == NULL) {
 		_tprintf(TEXT("[Erro] ao criar thread!\n"));
 		return -1;
 	}
@@ -221,8 +214,9 @@ int WINAPI _tWinMain(HINSTANCE hInst, HINSTANCE hPrevInst, LPTSTR lpCmdLine, int
 	}
 
 
-
+	WaitForMultipleObjects(1, hThread, TRUE, INFINITE);
 	return((int)lpMsg.wParam);
+	
 }
 
 typedef struct {
@@ -241,6 +235,7 @@ LRESULT CALLBACK TrataEventos(HWND hWnd, UINT messg, WPARAM wParam, LPARAM lPara
 	PAINTSTRUCT ps;
 	int aux = 1;
 	int x, y;
+	int comando;
 
 	static PosChar posicoes[100];
 	static int totalPos = 0;
@@ -279,24 +274,19 @@ LRESULT CALLBACK TrataEventos(HWND hWnd, UINT messg, WPARAM wParam, LPARAM lPara
 		WaitForSingleObject(hMutexG, INFINITE);
 
 		if (key == VK_UP) {
-			pont->faixa[4].col[3].val = 1;
-			pont->faixa[5].col[3].val = 0;
-			//UpdateWindow(hWnd);
+			EscrevePipe(1);
 		}
 
 		else if (key == VK_DOWN) {
-			pont->faixa[4].col[3].val = 1;
-			pont->faixa[5].col[3].val = 0;
+			EscrevePipe(2);
 		}
 
 		else if (key == VK_LEFT) {
-			//mandar pelo pipe 3, servidor move o sapo para esquerda
-			//receber a mensagem de volta do pipe
+			EscrevePipe(3);
 		}
 
 		else if (key == VK_RIGHT) {
-			//mandar pelo pipe 4, servidor move o sapo para direita
-			//receber a mensagem de volta do pipe
+			EscrevePipe(4);
 		}
 
 		ReleaseMutex(hMutexG);
